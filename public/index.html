@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Bulk Forwarder & Dispatcher</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Socket.io client -->
+  <script src="/socket.io/socket.io.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @keyframes pulse-border {
+      0%, 100% { border-color: rgba(16, 185, 129, 0.4); }
+      50% { border-color: rgba(16, 185, 129, 1); }
+    }
+    .animate-pulse-border {
+      animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-white">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
+          <i class="fa-brands fa-whatsapp text-2xl"></i>
+        </div>
+        <div>
+          <h1 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
+            WhatsApp Bulk Forwarder
+            <span class="text-[10px] font-semibold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full">Baileys Socket</span>
+          </h1>
+          <p class="text-xs text-slate-400">Automated Message Forwarding & Broadcast Hub</p>
+        </div>
+      </div>
+
+      <!-- Socket Status Badge -->
+      <div class="flex items-center gap-3">
+        <div id="connectionStatusBadge" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium">
+          <span id="statusIndicatorDot" class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+          <span id="statusText" class="text-slate-300">Initializing socket...</span>
+        </div>
+        <button id="logoutBtn" onclick="handleLogout()" class="hidden text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5">
+          <i class="fa-solid fa-power-off"></i> Disconnect
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+
+    <!-- QR Code Scan Screen (Shown when disconnected / needs auth) -->
+    <div id="qrSection" class="hidden">
+      <div class="max-w-md mx-auto bg-slate-800/90 border border-slate-700 rounded-2xl p-8 text-center shadow-2xl relative overflow-hidden">
+        <div class="absolute -right-12 -top-12 w-40 h-40 bg-emerald-500/10 rounded-full blur-2xl"></div>
+        <div class="w-14 h-14 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-center text-emerald-400 text-2xl mx-auto mb-4">
+          <i class="fa-solid fa-qrcode"></i>
+        </div>
+        <h2 class="text-xl font-bold text-white mb-2">Connect WhatsApp Web</h2>
+        <p class="text-xs text-slate-400 mb-6">Open WhatsApp on your phone &gt; Linked Devices &gt; Link a Device, then point your camera at this QR code.</p>
+
+        <!-- QR Display Container -->
+        <div class="bg-white p-4 rounded-xl inline-block shadow-inner mx-auto relative group">
+          <img id="qrImage" src="" alt="WhatsApp QR Code" class="w-64 h-64 mx-auto object-contain transition-opacity duration-300">
+          <div id="qrLoading" class="absolute inset-0 bg-white/90 flex flex-col items-center justify-center gap-2">
+            <i class="fa-solid fa-circle-notch fa-spin text-emerald-600 text-2xl"></i>
+            <span class="text-xs font-medium text-slate-700">Generating Baileys QR...</span>
+          </div>
+        </div>
+
+        <div class="mt-6 flex items-center justify-center gap-2 text-xs text-slate-400">
+          <i class="fa-solid fa-shield-halved text-emerald-400"></i>
+          <span>Multi-file session credentials stored securely locally</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Connected Dashboard -->
+    <div id="dashboardSection" class="hidden space-y-6">
+
+      <!-- Connected Profile Bar -->
+      <div class="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 rounded-xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-lg">
+            <i class="fa-solid fa-user-check"></i>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-white flex items-center gap-2">
+              <span id="profileName">Connected Account</span>
+              <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-mono font-medium">READY</span>
+            </div>
+            <div class="text-xs text-slate-400 font-mono" id="profilePhone">+--</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 text-xs text-slate-400">
+          <span class="flex items-center gap-1.5"><i class="fa-solid fa-clock-rotate-left text-emerald-400"></i> <span id="cachedMsgCount">0</span> messages cached</span>
+          <span class="text-slate-600">|</span>
+          <button onclick="requestStatusRefresh()" class="hover:text-emerald-400 flex items-center gap-1 transition-colors">
+            <i class="fa-solid fa-arrows-rotate"></i> Sync
+          </button>
+        </div>
+      </div>
+
+      <!-- Two Column Layout: Setup & Recipients -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Left Column: Message Selector (7 cols) -->
+        <div class="lg:col-span-7 space-y-6">
+
+          <!-- Message Mode Selector -->
+          <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 shadow-xl">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs">1</span>
+                Message Payload
+              </h2>
+              <!-- Tab Switcher -->
+              <div class="bg-slate-900/80 p-1 rounded-xl border border-slate-700/80 flex gap-1 text-xs">
+                <button id="tabForward" onclick="switchMode('forward')" class="px-3 py-1.5 rounded-lg font-medium transition-all bg-emerald-600 text-white shadow">
+                  <i class="fa-solid fa-share mr-1.5"></i> Forward Message
+                </button>
+                <button id="tabCustom" onclick="switchMode('custom')" class="px-3 py-1.5 rounded-lg font-medium transition-all text-slate-400 hover:text-white">
+                  <i class="fa-solid fa-pen-to-square mr-1.5"></i> Custom Text
+                </button>
+              </div>
+            </div>
+
+            <!-- Mode A: Pick From Recent Messages -->
+            <div id="modeForwardPanel" class="space-y-4">
+              <p class="text-xs text-slate-400">
+                Choose a recent incoming or sent message from your chats to bulk-forward with native WhatsApp forward tags.
+              </p>
+
+              <!-- Selected Message Preview Card -->
+              <div id="selectedMessageCard" class="hidden p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/30 relative">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs font-semibold text-emerald-400 flex items-center gap-1">
+                    <i class="fa-solid fa-check-circle"></i> Message Selected for Forwarding
+                  </span>
+                  <button onclick="clearSelectedMessage()" class="text-xs text-slate-400 hover:text-red-400">
+                    <i class="fa-solid fa-xmark"></i> Deselect
+                  </button>
+                </div>
+                <div id="selectedMessageText" class="text-sm text-slate-200 bg-slate-900/60 p-3 rounded-lg font-sans break-words border border-slate-800"></div>
+                <div id="selectedMessageMeta" class="mt-2 text-[11px] text-slate-400 flex items-center gap-3"></div>
+              </div>
+
+              <!-- Messages List Container -->
+              <div class="border border-slate-700 rounded-xl overflow-hidden bg-slate-900/60">
+                <div class="bg-slate-800/80 px-4 py-2.5 border-b border-slate-700 flex items-center justify-between text-xs">
+                  <span class="font-medium text-slate-300">Live Recent Chat Messages</span>
+                  <span class="text-slate-400 text-[11px]">Click any message to select</span>
+                </div>
+                <div id="messagesList" class="divide-y divide-slate-800 max-h-80 overflow-y-auto">
+                  <div class="p-6 text-center text-xs text-slate-500">
+                    <i class="fa-regular fa-comment-dots text-xl mb-2"></i>
+                    <p>No messages received yet. Send or receive a WhatsApp message on your phone, and it will appear here automatically.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Mode B: Custom Text Broadcast -->
+            <div id="modeCustomPanel" class="hidden space-y-3">
+              <div class="flex items-center justify-between">
+                <p class="text-xs text-slate-400">
+                  Compose a broadcast message with full WhatsApp formatting support.
+                </p>
+                <div class="flex items-center gap-1 bg-slate-900/90 p-1 rounded-lg border border-slate-700 text-xs">
+                  <button type="button" onclick="insertFormatting('*', '*')" title="Bold (*text*)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 font-bold hover:text-white">B</button>
+                  <button type="button" onclick="insertFormatting('_', '_')" title="Italic (_text_)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 italic hover:text-white">I</button>
+                  <button type="button" onclick="insertFormatting('~', '~')" title="Strikethrough (~text~)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 line-through hover:text-white">S</button>
+                  <button type="button" onclick="insertFormatting('```', '```')" title="Monospace (```code```)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 font-mono hover:text-white">&lt;&gt;</button>
+                  <button type="button" onclick="insertPrefix('> ')" title="Quote (> text)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 hover:text-white"><i class="fa-solid fa-quote-left"></i></button>
+                  <button type="button" onclick="insertPrefix('- ')" title="Bullet List (- item)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 hover:text-white"><i class="fa-solid fa-list-ul"></i></button>
+                </div>
+              </div>
+
+              <textarea id="customMessageInput" rows="5" placeholder="Type message... e.g. *Important Update* for _Amit_&#10;~old price~ *new price*&#10;> Quoted note"
+                oninput="renderFormattingPreview()"
+                class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none font-sans"></textarea>
+
+              <!-- Live WhatsApp Message Preview Bubble -->
+              <div class="space-y-1.5 pt-1">
+                <div class="text-[11px] font-semibold text-slate-400 flex items-center justify-between">
+                  <span><i class="fa-brands fa-whatsapp text-emerald-400 mr-1"></i> WhatsApp Live Preview</span>
+                  <span class="text-[10px] text-slate-500">Rendered recipient view</span>
+                </div>
+                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                  <div class="max-w-[85%] ml-auto bg-[#005c4b] text-white text-xs p-3 rounded-2xl rounded-tr-none shadow-sm space-y-1 relative font-sans">
+                    <div id="formattingPreviewContent" class="break-words whitespace-pre-wrap">Type in the box above to preview formatting...</div>
+                    <div class="text-[9px] text-emerald-200/60 text-right flex items-center justify-end gap-1">
+                      <span>12:00 PM</span>
+                      <i class="fa-solid fa-check-double text-blue-400 text-[10px]"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Throttle and Safety Controls -->
+          <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 shadow-xl">
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2 mb-4">
+              <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs">2</span>
+              Anti-Ban Delay & Dispatch Speed
+            </h2>
+            <div class="space-y-4">
+              <div>
+                <div class="flex items-center justify-between text-xs mb-2">
+                  <span class="text-slate-300 font-medium">Interval Between Messages</span>
+                  <span id="delayDisplay" class="text-emerald-400 font-bold font-mono">3.0 seconds</span>
+                </div>
+                <input id="delaySlider" type="range" min="1" max="15" step="0.5" value="3" oninput="updateDelayDisplay(this.value)"
+                  class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+              </div>
+              <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300/90 flex gap-2.5 items-start">
+                <i class="fa-solid fa-triangle-exclamation text-amber-400 mt-0.5"></i>
+                <div>
+                  <span class="font-semibold text-amber-300">WhatsApp Safety Advisory:</span> Sending bulk messages too quickly to unknown numbers can trigger spam detection. We recommend 3+ seconds per message.
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right Column: Recipients & Dispatch Queue (5 cols) -->
+        <div class="lg:col-span-5 space-y-6">
+
+          <!-- Target Numbers -->
+          <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 shadow-xl space-y-4">
+            <div class="flex items-center justify-between">
+              <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs">3</span>
+                Target Recipients
+              </h2>
+              <span id="recipientCountBadge" class="text-xs font-mono bg-slate-900 px-2.5 py-1 rounded-full border border-slate-700 text-slate-400">
+                0 recipients
+              </span>
+            </div>
+
+            <p class="text-xs text-slate-400">
+              Enter phone numbers with country code (e.g. <code>919876543210</code> or <code>+1 234 567 8900</code>), separated by commas or line breaks.
+            </p>
+
+            <textarea id="recipientsInput" rows="7" placeholder="919876543210&#10;14155552671&#10;+91 91234 56789" oninput="parseRecipients()"
+              class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"></textarea>
+
+            <div class="flex items-center justify-between pt-1">
+              <button onclick="insertSampleRecipients()" class="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">
+                <i class="fa-solid fa-magic-wand-sparkles mr-1"></i> Paste Samples
+              </button>
+              <button onclick="clearRecipients()" class="text-xs text-slate-400 hover:text-slate-300 transition-colors">
+                Clear List
+              </button>
+            </div>
+
+            <!-- Start Action Button -->
+            <div class="pt-2">
+              <button id="startBulkBtn" onclick="initiateBulkSend()" class="w-full py-3.5 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white shadow-lg shadow-emerald-500/25 active:scale-[0.99] transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
+                <i class="fa-solid fa-paper-plane"></i>
+                <span>Launch Bulk Forward</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Live Progress & Dispatch Monitor -->
+          <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 shadow-xl space-y-4">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                <i class="fa-solid fa-chart-line text-emerald-400"></i> Dispatch Monitor
+              </h3>
+              <button id="cancelTaskBtn" onclick="cancelBulkTask()" class="hidden text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 px-2.5 py-1 rounded-lg transition-colors">
+                <i class="fa-solid fa-stop mr-1"></i> Cancel Queue
+              </button>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="space-y-1.5">
+              <div class="flex justify-between text-xs text-slate-400">
+                <span id="progressStatusText">Idle</span>
+                <span id="progressPercentageText" class="font-mono">0%</span>
+              </div>
+              <div class="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-700">
+                <div id="progressBar" class="h-full bg-emerald-500 transition-all duration-300 ease-out" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- Stats grid -->
+            <div class="grid grid-cols-3 gap-2 text-center">
+              <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-700/60">
+                <div class="text-[10px] uppercase font-semibold text-slate-400">Total</div>
+                <div id="statTotal" class="text-base font-bold text-white">0</div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                <div class="text-[10px] uppercase font-semibold text-emerald-400">Sent</div>
+                <div id="statSuccess" class="text-base font-bold text-emerald-400">0</div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20">
+                <div class="text-[10px] uppercase font-semibold text-red-400">Failed</div>
+                <div id="statFailed" class="text-base font-bold text-red-400">0</div>
+              </div>
+            </div>
+
+            <!-- Realtime Logs Terminal -->
+            <div class="border border-slate-700 rounded-xl bg-slate-950 p-3 space-y-1 font-mono text-[11px] h-44 overflow-y-auto" id="logTerminal">
+              <div class="text-slate-500">// Real-time socket events and forwarding logs will stream here...</div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    // State
+    const socket = io();
+    let currentMode = 'forward'; // 'forward' | 'custom'
+    let selectedMsgId = null;
+    let cachedMessages = [];
+    let parsedRecipientsList = [];
+
+    // Socket Event Handlers
+    socket.on('connect', () => {
+      addLog('info', 'Connected to local application server');
+    });
+
+    socket.on('status_update', (data) => {
+      renderStatus(data);
+    });
+
+    socket.on('recent_messages', (messages) => {
+      cachedMessages = messages || [];
+      renderRecentMessages(cachedMessages);
+      document.getElementById('cachedMsgCount').textContent = cachedMessages.length;
+    });
+
+    socket.on('bulk_progress', (data) => {
+      renderProgress(data);
+    });
+
+    socket.on('bulk_complete', (data) => {
+      document.getElementById('cancelTaskBtn').classList.add('hidden');
+      document.getElementById('startBulkBtn').disabled = false;
+      addLog('success', `Completed bulk dispatch in ${data.durationSeconds}s! Sent: ${data.successful}, Failed: ${data.failed}`);
+      alert(`Bulk forward completed!\nSuccessfully sent: ${data.successful}\nFailed: ${data.failed}`);
+    });
+
+    socket.on('log', (entry) => {
+      addLog(entry.type, entry.text);
+    });
+
+    // Render Status and Mode changes
+    function renderStatus(data) {
+      const qrSection = document.getElementById('qrSection');
+      const dashboardSection = document.getElementById('dashboardSection');
+      const statusText = document.getElementById('statusText');
+      const dot = document.getElementById('statusIndicatorDot');
+      const logoutBtn = document.getElementById('logoutBtn');
+      const qrImage = document.getElementById('qrImage');
+      const qrLoading = document.getElementById('qrLoading');
+
+      if (data.status === 'connected') {
+        qrSection.classList.add('hidden');
+        dashboardSection.classList.remove('hidden');
+        logoutBtn.classList.remove('hidden');
+        statusText.textContent = `Connected (${data.user?.phone || 'Online'})`;
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+        document.getElementById('profileName').textContent = data.user?.name || 'WhatsApp Account';
+        document.getElementById('profilePhone').textContent = data.user?.phone ? `+${data.user.phone}` : 'Active';
+      } else if (data.status === 'qr_ready') {
+        dashboardSection.classList.add('hidden');
+        qrSection.classList.remove('hidden');
+        logoutBtn.classList.add('hidden');
+        statusText.textContent = 'Scan QR with WhatsApp';
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+
+        if (data.qr) {
+          qrImage.src = data.qr;
+          qrLoading.classList.add('hidden');
+        }
+      } else if (data.status === 'connecting') {
+        dashboardSection.classList.add('hidden');
+        qrSection.classList.remove('hidden');
+        logoutBtn.classList.add('hidden');
+        statusText.textContent = 'Connecting to Baileys socket...';
+        dot.className = 'w-2 h-2 rounded-full bg-blue-400 animate-ping';
+        qrLoading.classList.remove('hidden');
+      } else {
+        dashboardSection.classList.add('hidden');
+        qrSection.classList.remove('hidden');
+        logoutBtn.classList.add('hidden');
+        statusText.textContent = 'Disconnected';
+        dot.className = 'w-2 h-2 rounded-full bg-red-400';
+      }
+    }
+
+    function switchMode(mode) {
+      currentMode = mode;
+      const tabForward = document.getElementById('tabForward');
+      const tabCustom = document.getElementById('tabCustom');
+      const modeForwardPanel = document.getElementById('modeForwardPanel');
+      const modeCustomPanel = document.getElementById('modeCustomPanel');
+      const startBtnSpan = document.querySelector('#startBulkBtn span');
+
+      if (mode === 'forward') {
+        tabForward.className = 'px-3 py-1.5 rounded-lg font-medium transition-all bg-emerald-600 text-white shadow';
+        tabCustom.className = 'px-3 py-1.5 rounded-lg font-medium transition-all text-slate-400 hover:text-white';
+        modeForwardPanel.classList.remove('hidden');
+        modeCustomPanel.classList.add('hidden');
+        startBtnSpan.textContent = 'Launch Bulk Forward';
+      } else {
+        tabCustom.className = 'px-3 py-1.5 rounded-lg font-medium transition-all bg-emerald-600 text-white shadow';
+        tabForward.className = 'px-3 py-1.5 rounded-lg font-medium transition-all text-slate-400 hover:text-white';
+        modeCustomPanel.classList.remove('hidden');
+        modeForwardPanel.classList.add('hidden');
+        startBtnSpan.textContent = 'Launch Custom Broadcast';
+      }
+    }
+
+    function renderRecentMessages(messages) {
+      const list = document.getElementById('messagesList');
+      if (!messages || messages.length === 0) {
+        list.innerHTML = `
+          <div class="p-6 text-center text-xs text-slate-500">
+            <i class="fa-regular fa-comment-dots text-xl mb-2"></i>
+            <p>No messages received yet. Send or receive a WhatsApp message on your phone, and it will appear here automatically.</p>
+          </div>
+        `;
+        return;
+      }
+
+      list.innerHTML = messages.map(m => {
+        const isSelected = m.id === selectedMsgId;
+        const timeStr = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const senderBadge = m.fromMe
+          ? `<span class="bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded text-[10px]">You</span>`
+          : `<span class="bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded text-[10px]">${escapeHtml(m.sender)}</span>`;
+
+        return `
+          <div onclick="selectMessage('${m.id}')"
+            class="p-3 transition-colors cursor-pointer hover:bg-slate-800/80 flex items-start justify-between gap-3 ${isSelected ? 'bg-emerald-950/40 border-l-4 border-emerald-500' : ''}">
+            <div class="space-y-1 flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                ${senderBadge}
+                <span class="text-[11px] text-slate-500 font-mono">${timeStr}</span>
+              </div>
+              <div class="text-xs text-slate-200 truncate font-sans">${escapeHtml(m.text)}</div>
+            </div>
+            <button class="shrink-0 text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-emerald-600 hover:text-white text-slate-300 transition-colors">
+              ${isSelected ? '<i class="fa-solid fa-check text-emerald-400"></i>' : 'Select'}
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function selectMessage(msgId) {
+      selectedMsgId = msgId;
+      const found = cachedMessages.find(m => m.id === msgId);
+      if (found) {
+        const card = document.getElementById('selectedMessageCard');
+        card.classList.remove('hidden');
+        document.getElementById('selectedMessageText').textContent = found.text;
+        document.getElementById('selectedMessageMeta').innerHTML = `
+          <span><i class="fa-regular fa-user mr-1"></i> ${escapeHtml(found.sender)}</span>
+          <span><i class="fa-regular fa-clock mr-1"></i> ${new Date(found.timestamp).toLocaleString()}</span>
+          <span class="font-mono text-[10px] text-slate-500">ID: ${found.id.slice(0, 10)}...</span>
+        `;
+      }
+      renderRecentMessages(cachedMessages);
+    }
+
+    function clearSelectedMessage() {
+      selectedMsgId = null;
+      document.getElementById('selectedMessageCard').classList.add('hidden');
+      renderRecentMessages(cachedMessages);
+    }
+
+    function updateDelayDisplay(val) {
+      document.getElementById('delayDisplay').textContent = `${parseFloat(val).toFixed(1)} seconds`;
+    }
+
+    function insertFormatting(prefix, suffix) {
+      const textarea = document.getElementById('customMessageInput');
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+      const selected = text.substring(start, end) || 'text';
+      const replacement = prefix + selected + suffix;
+      textarea.value = text.substring(0, start) + replacement + text.substring(end);
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+      renderFormattingPreview();
+    }
+
+    function insertPrefix(prefix) {
+      const textarea = document.getElementById('customMessageInput');
+      const start = textarea.selectionStart;
+      const text = textarea.value;
+      textarea.value = text.substring(0, start) + prefix + text.substring(start);
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, start + prefix.length);
+      renderFormattingPreview();
+    }
+
+    function renderFormattingPreview() {
+      const text = document.getElementById('customMessageInput').value;
+      try {
+        localStorage.setItem('wa_sender_custom_msg', text);
+      } catch (e) {}
+      const preview = document.getElementById('formattingPreviewContent');
+      if (!text.trim()) {
+        preview.textContent = 'Type in the box above to preview formatting...';
+        return;
+      }
+      // Parse WhatsApp formatting:
+      // Code blocks ```code```
+      let formatted = escapeHtml(text);
+      formatted = formatted.replace(/```([^`]+)```/g, '<code class="bg-black/30 px-1.5 py-0.5 rounded font-mono text-emerald-300">$1</code>');
+      // Bold *bold*
+      formatted = formatted.replace(/\*([^*\n]+)\*/g, '<strong class="font-bold text-white">$1</strong>');
+      // Italic _italic_
+      formatted = formatted.replace(/_([^_\n]+)_/g, '<em class="italic text-slate-100">$1</em>');
+      // Strikethrough ~strikethrough~
+      formatted = formatted.replace(/~([^~\n]+)~/g, '<del class="line-through text-slate-300">$1</del>');
+      // Quotes > quote
+      formatted = formatted.replace(/^(&gt;|>)\s?(.*)$/gm, '<blockquote class="border-l-2 border-emerald-300 pl-2 text-slate-200 bg-white/5 py-0.5 my-1 rounded-r">$2</blockquote>');
+      preview.innerHTML = formatted;
+    }
+
+    let saveRecipientsTimeout = null;
+    function persistRecipients(text) {
+      try {
+        localStorage.setItem('wa_sender_recipients', text);
+      } catch (e) {}
+      clearTimeout(saveRecipientsTimeout);
+      saveRecipientsTimeout = setTimeout(() => {
+        fetch('/api/recipients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        }).catch(() => {});
+      }, 400);
+    }
+
+    function parseRecipients(shouldPersist = true) {
+      const text = document.getElementById('recipientsInput').value;
+      if (shouldPersist) persistRecipients(text);
+      const rawLines = text.split(/[\n,;]+/);
+      const cleanList = [];
+
+      for (let raw of rawLines) {
+        let clean = raw.trim();
+        if (!clean) continue;
+        if (clean.endsWith('@s.whatsapp.net') || clean.endsWith('@g.us')) {
+          if (!cleanList.includes(clean)) cleanList.push(clean);
+          continue;
+        }
+        const digits = clean.replace(/\D/g, '');
+        if (digits.length >= 7) {
+          if (!cleanList.includes(digits)) cleanList.push(digits);
+        }
+      }
+
+      parsedRecipientsList = cleanList;
+      const badge = document.getElementById('recipientCountBadge');
+      badge.textContent = `${cleanList.length} valid recipient${cleanList.length === 1 ? '' : 's'}`;
+      if (cleanList.length > 0) {
+        badge.className = 'text-xs font-mono bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/30 text-emerald-400';
+      } else {
+        badge.className = 'text-xs font-mono bg-slate-900 px-2.5 py-1 rounded-full border border-slate-700 text-slate-400';
+      }
+    }
+
+    function insertSampleRecipients() {
+      const sample = `919876543210\n919123456789\n14155552671`;
+      document.getElementById('recipientsInput').value = sample;
+      parseRecipients(true);
+    }
+
+    function clearRecipients() {
+      if (confirm('Are you sure you want to clear your recipients list?')) {
+        document.getElementById('recipientsInput').value = '';
+        try {
+          localStorage.removeItem('wa_sender_recipients');
+        } catch (e) {}
+        fetch('/api/recipients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: '' })
+        }).catch(() => {});
+        parseRecipients(false);
+      }
+    }
+
+    async function initiateBulkSend() {
+      parseRecipients();
+
+      if (parsedRecipientsList.length === 0) {
+        alert('Please enter at least one valid recipient phone number with country code.');
+        return;
+      }
+
+      let payload = {
+        recipients: parsedRecipientsList,
+        mode: currentMode,
+        delayMs: parseFloat(document.getElementById('delaySlider').value) * 1000
+      };
+
+      if (currentMode === 'forward') {
+        if (!selectedMsgId) {
+          alert('Please select a message to forward from the Recent Chat Messages list.');
+          return;
+        }
+        payload.messageId = selectedMsgId;
+      } else {
+        const customText = document.getElementById('customMessageInput').value.trim();
+        if (!customText) {
+          alert('Please enter text for the custom message.');
+          return;
+        }
+        payload.customText = customText;
+      }
+
+      const confirmed = confirm(
+        `Are you sure you want to send this ${currentMode === 'forward' ? 'forwarded' : 'custom'} message to ${parsedRecipientsList.length} recipients with a ${document.getElementById('delaySlider').value}s delay?`
+      );
+      if (!confirmed) return;
+
+      document.getElementById('startBulkBtn').disabled = true;
+      document.getElementById('cancelTaskBtn').classList.remove('hidden');
+
+      try {
+        const res = await fetch('/api/bulk-send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to start bulk send');
+        }
+        addLog('info', `Bulk dispatch initiated: ${data.total} targets.`);
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+        document.getElementById('startBulkBtn').disabled = false;
+        document.getElementById('cancelTaskBtn').classList.add('hidden');
+      }
+    }
+
+    function cancelBulkTask() {
+      socket.emit('cancel_bulk');
+    }
+
+    function renderProgress(task) {
+      document.getElementById('statTotal').textContent = task.total;
+      document.getElementById('statSuccess').textContent = task.successful;
+      document.getElementById('statFailed').textContent = task.failed;
+      document.getElementById('progressBar').style.width = `${task.percent || 0}%`;
+      document.getElementById('progressPercentageText').textContent = `${task.percent || 0}%`;
+      document.getElementById('progressStatusText').textContent = `Processing ${task.current} of ${task.total}...`;
+    }
+
+    function addLog(type, text) {
+      const term = document.getElementById('logTerminal');
+      const line = document.createElement('div');
+      const time = new Date().toLocaleTimeString();
+
+      let color = 'text-slate-300';
+      let tag = 'INFO';
+      if (type === 'success') {
+        color = 'text-emerald-400';
+        tag = 'OK';
+      } else if (type === 'error') {
+        color = 'text-red-400';
+        tag = 'ERR';
+      } else if (type === 'warning') {
+        color = 'text-amber-400';
+        tag = 'WARN';
+      }
+
+      line.className = `flex items-start gap-2 ${color}`;
+      line.innerHTML = `
+        <span class="text-slate-500 shrink-0">[${time}]</span>
+        <span class="font-bold shrink-0">[${tag}]</span>
+        <span class="break-all">${escapeHtml(text)}</span>
+      `;
+      term.appendChild(line);
+      term.scrollTop = term.scrollHeight;
+    }
+
+    function handleLogout() {
+      if (confirm('Disconnect WhatsApp and remove saved credentials? You will need to scan QR again.')) {
+        socket.emit('logout_wa');
+      }
+    }
+
+    function requestStatusRefresh() {
+      socket.emit('request_status');
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // Restore persisted recipients and draft messages on startup
+    async function restorePersistedState() {
+      const input = document.getElementById('recipientsInput');
+      let loaded = false;
+      try {
+        const cached = localStorage.getItem('wa_sender_recipients');
+        if (cached && cached.trim()) {
+          input.value = cached;
+          parseRecipients(false);
+          loaded = true;
+        }
+      } catch (e) {}
+
+      if (!loaded) {
+        try {
+          const res = await fetch('/api/recipients');
+          const data = await res.json();
+          if (data?.text) {
+            input.value = data.text;
+            try {
+              localStorage.setItem('wa_sender_recipients', data.text);
+            } catch (e) {}
+            parseRecipients(false);
+          }
+        } catch (e) {}
+      }
+
+      try {
+        const customMsg = document.getElementById('customMessageInput');
+        const savedMsg = localStorage.getItem('wa_sender_custom_msg');
+        if (savedMsg && customMsg) {
+          customMsg.value = savedMsg;
+          renderFormattingPreview();
+        }
+      } catch (e) {}
+    }
+
+    window.addEventListener('DOMContentLoaded', restorePersistedState);
+    restorePersistedState();
+  </script>
+</body>
+</html>
