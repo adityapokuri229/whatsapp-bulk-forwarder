@@ -174,7 +174,8 @@
                   <button type="button" onclick="insertFormatting('*', '*')" title="Bold (*text*)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 font-bold hover:text-white">B</button>
                   <button type="button" onclick="insertFormatting('_', '_')" title="Italic (_text_)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 italic hover:text-white">I</button>
                   <button type="button" onclick="insertFormatting('~', '~')" title="Strikethrough (~text~)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 line-through hover:text-white">S</button>
-                  <button type="button" onclick="insertFormatting('```', '```')" title="Monospace (```code```)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 font-mono hover:text-white">&lt;&gt;</button>
+                  <button type="button" onclick="insertInlineCode()" title="Inline Code (`code`)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 font-mono hover:text-white">`c`</button>
+                  <button type="button" onclick="insertCodeBlock()" title="Code Block (```code```)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-emerald-400 font-mono hover:text-white font-semibold flex items-center gap-1"><i class="fa-solid fa-code text-[11px]"></i> Block</button>
                   <button type="button" onclick="insertPrefix('> ')" title="Quote (> text)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 hover:text-white"><i class="fa-solid fa-quote-left"></i></button>
                   <button type="button" onclick="insertPrefix('- ')" title="Bullet List (- item)" class="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 hover:text-white"><i class="fa-solid fa-list-ul"></i></button>
                 </div>
@@ -490,7 +491,23 @@
       document.getElementById('delayDisplay').textContent = `${parseFloat(val).toFixed(1)} seconds`;
     }
 
-    function insertFormatting(prefix, suffix) {
+    function insertInlineCode() {
+      insertFormatting('`', '`');
+    }
+
+    function insertCodeBlock() {
+      const textarea = document.getElementById('customMessageInput');
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+      const selected = text.substring(start, end) || '// write your code here';
+      const replacement = `\n\`\`\`\n${selected}\n\`\`\`\n`;
+      textarea.value = text.substring(0, start) + replacement + text.substring(end);
+      textarea.focus();
+      const codeStart = start + 5; // right after \n```\n
+      textarea.setSelectionRange(codeStart, codeStart + selected.length);
+      renderFormattingPreview();
+    }
       const textarea = document.getElementById('customMessageInput');
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
@@ -524,9 +541,16 @@
         return;
       }
       // Parse WhatsApp formatting:
-      // Code blocks ```code```
       let formatted = escapeHtml(text);
-      formatted = formatted.replace(/```([^`]+)```/g, '<code class="bg-black/30 px-1.5 py-0.5 rounded font-mono text-emerald-300">$1</code>');
+
+      // Multi-line code blocks ```code```
+      formatted = formatted.replace(/```([\s\S]*?)```/g, function(match, code) {
+        return '<pre class="my-2 p-2.5 rounded-lg bg-black/40 border border-emerald-500/20 text-emerald-300 font-mono text-[11px] overflow-x-auto whitespace-pre leading-relaxed"><code>' + code.replace(/^\n+|\n+$/g, '') + '</code></pre>';
+      });
+
+      // Inline code `code`
+      formatted = formatted.replace(/`([^`\n]+)`/g, '<code class="bg-black/30 px-1.5 py-0.5 rounded font-mono text-emerald-300">$1</code>');
+
       // Bold *bold*
       formatted = formatted.replace(/\*([^*\n]+)\*/g, '<strong class="font-bold text-white">$1</strong>');
       // Italic _italic_
