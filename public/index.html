@@ -546,6 +546,8 @@
       textarea.setSelectionRange(codeStart, codeStart + selected.length);
       renderFormattingPreview();
     }
+
+    function insertFormatting(prefix, suffix) {
       const textarea = document.getElementById('customMessageInput');
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
