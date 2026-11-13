@@ -324,15 +324,53 @@
 
   <script>
     // State
-    const socket = io();
+    const socket = io({
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000
+    });
     let currentMode = 'forward'; // 'forward' | 'custom'
     let selectedMsgId = null;
     let cachedMessages = [];
     let parsedRecipientsList = [];
 
+    // Fallback polling via HTTP API in case WebSocket handshake is blocked or delayed
+    async function syncStatusFromAPI() {
+      try {
+        const res = await fetch('/api/status');
+        if (res.ok) {
+          const data = await res.json();
+          renderStatus(data);
+        }
+        const msgRes = await fetch('/api/messages');
+        if (msgRes.ok) {
+          const msgs = await msgRes.json();
+          if (msgs && msgs.length > 0) {
+            cachedMessages = msgs;
+            renderRecentMessages(msgs);
+            document.getElementById('cachedMsgCount').textContent = msgs.length;
+          }
+        }
+      } catch (e) {
+        console.warn('API sync check failed:', e);
+      }
+    }
+
+    // Run initial sync right away on load
+    window.addEventListener('DOMContentLoaded', () => {
+      syncStatusFromAPI();
+    });
+
     // Socket Event Handlers
     socket.on('connect', () => {
-      addLog('info', 'Connected to local application server');
+      addLog('info', 'Connected to real-time socket server');
+      socket.emit('request_status');
+    });
+
+    socket.on('connect_error', (err) => {
+      console.warn('Socket connection error, falling back to HTTP sync:', err);
+      syncStatusFromAPI();
     });
 
     socket.on('status_update', (data) => {
